@@ -1,18 +1,20 @@
 Assignment : webserver
 
-
 Automated Infrastructure Setup with Terraform : 
 
-1. Install terraform on our local system ( using VS Code  editor )
-
-
+1. Install terraform on our local system :
 
 Create a Terraform Configuration File: Create a file named main.tf with the following content:
 
+# Provider Configuration
+
 provider "google" {
-  project = "your-gcp-project-id"
-  region  = "us-central1"
+  project     = "your-project-id"
+  region      = "us-central1"
+  credentials = file("path-to-your-service-account-key.json") # Adjust the path to your service account key
 }
+
+# VPC and Subnets
 
 resource "google_compute_network" "vpc_network" {
   name                    = "my-vpc"
@@ -22,25 +24,29 @@ resource "google_compute_network" "vpc_network" {
 resource "google_compute_subnetwork" "public_subnet" {
   name          = "public-subnet"
   ip_cidr_range = "10.0.1.0/24"
-  region       = "us-central1"
-  network      = google_compute_network.vpc_network.name
+  region        = "us-central1"
+  network       = google_compute_network.vpc_network.name
 }
 
 resource "google_compute_subnetwork" "private_subnet" {
   name          = "private-subnet"
   ip_cidr_range = "10.0.2.0/24"
-  region       = "us-central1"
-  network      = google_compute_network.vpc_network.name
+  region        = "us-central1"
+  network       = google_compute_network.vpc_network.name
 }
+
+# Compute Engine Instance (Web Server with Nginx and Docker)
 
 resource "google_compute_instance" "web_server" {
   name         = "web-server"
   machine_type = "f1-micro"
   zone         = "us-central1-a"
 
+  tags = ["http-server"] # The instance is tagged for firewall rules
+
   boot_disk {
     initialize_params {
-      image = "debian-cloud/debian-10"
+      image = "debian-cloud/debian-10" # Or consider upgrading to debian-11
     }
   }
 
@@ -56,11 +62,15 @@ resource "google_compute_instance" "web_server" {
   metadata_startup_script = <<-EOF
     #! /bin/bash
     apt-get update
-    apt-get install -y nginx
+    apt-get install -y nginx docker.io
     systemctl start nginx
     systemctl enable nginx
+    systemctl start docker
+    systemctl enable docker
   EOF
 }
+
+# Firewall Rule (Allow HTTP/HTTPS traffic)
 
 resource "google_compute_firewall" "allow_http_https" {
   name    = "allow-http-https"
@@ -72,13 +82,11 @@ resource "google_compute_firewall" "allow_http_https" {
   }
 
   source_ranges = ["0.0.0.0/0"]
+  target_tags   = ["http-server"]  # Apply the firewall rule only to instances with this tag
 }
 
 
-
-
 3. Initialize and Apply Terraform:
-
 
 terraform init
 terraform apply
@@ -87,28 +95,34 @@ Confirm the action to provision the resources.
 
 CI/CD Pipeline Setup Using Google Cloud Build
 
-1. Create a cloudbuild.yaml File: This file defines the steps for your CI/CD pipeline. 
-
-Create a file named cloudbuild.yaml with the following content:
-
-
+1.  Create a file named cloudbuild.yaml with the following content:
 
 steps:
-- name: 'gcr.io/cloud-builders/git'
-  entrypoint: 'bash'
-  args: ['-c', 'git clone https://github.com/your-username/your-repo.git']
+  # Step 1: Clone the repository from GitHub
+  - name: 'gcr.io/cloud-builders/git'
+    entrypoint: 'bash'
+    args: ['-c', 'git clone https://github.com/udhayacloud/web-server-gcp.git']
 
-- name: 'gcr.io/cloud-builders/docker'
-  args: ['build', '-t', 'gcr.io/$PROJECT_ID/my-web-app', './your-repo']
+  # Step 2: Build Docker image from the cloned repository
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'gcr.io/$PROJECT_ID/my-web-app', './your-repo']
 
-- name: 'gcr.io/cloud-builders/docker'
-  args: ['push', 'gcr.io/$PROJECT_ID/my-web-app']
+  # Step 3: Push the Docker image to Google Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/my-web-app']
 
-- name: 'gcr.io/cloud-builders/gcloud'
-  args: ['compute', 'ssh', 'web-server', '--zone', 'us-central1-a', '--command', 'docker run -d -p 80:80 gcr.io/$PROJECT_ID/my-web-app']
+  # Step 4: SSH into the Compute Engine instance and run the Docker container
+  - name: 'gcr.io/cloud-builders/gcloud'
+    args: [
+      'compute', 
+      'ssh', 
+      'web-server', 
+      '--zone', 'us-central1-a', 
+      '--command', 'docker run -d -p 80:80 gcr.io/$PROJECT_ID/my-web-app'
+    ]
 
 2.Trigger the Build: Set up a trigger in Google Cloud Build to start the build process whenever 
-there is a push to your GitHub repository.
+  there is a push to your GitHub repository.
 
 Monitoring and Logging :
 
