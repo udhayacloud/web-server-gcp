@@ -1,0 +1,125 @@
+Assignment : webserver
+
+
+Automated Infrastructure Setup with Terraform : 
+
+1. Install terraform on our local system ( using VS Code  editor )
+
+
+
+Create a Terraform Configuration File: Create a file named main.tf with the following content:
+
+provider "google" {
+  project = "your-gcp-project-id"
+  region  = "us-central1"
+}
+
+resource "google_compute_network" "vpc_network" {
+  name                    = "my-vpc"
+  auto_create_subnetworks = false
+}
+
+resource "google_compute_subnetwork" "public_subnet" {
+  name          = "public-subnet"
+  ip_cidr_range = "10.0.1.0/24"
+  region       = "us-central1"
+  network      = google_compute_network.vpc_network.name
+}
+
+resource "google_compute_subnetwork" "private_subnet" {
+  name          = "private-subnet"
+  ip_cidr_range = "10.0.2.0/24"
+  region       = "us-central1"
+  network      = google_compute_network.vpc_network.name
+}
+
+resource "google_compute_instance" "web_server" {
+  name         = "web-server"
+  machine_type = "f1-micro"
+  zone         = "us-central1-a"
+
+  boot_disk {
+    initialize_params {
+      image = "debian-cloud/debian-10"
+    }
+  }
+
+  network_interface {
+    network    = google_compute_network.vpc_network.name
+    subnetwork = google_compute_subnetwork.public_subnet.name
+
+    access_config {
+      // Ephemeral IP
+    }
+  }
+
+  metadata_startup_script = <<-EOF
+    #! /bin/bash
+    apt-get update
+    apt-get install -y nginx
+    systemctl start nginx
+    systemctl enable nginx
+  EOF
+}
+
+resource "google_compute_firewall" "allow_http_https" {
+  name    = "allow-http-https"
+  network = google_compute_network.vpc_network.name
+
+  allow {
+    protocol = "tcp"
+    ports    = ["80", "443"]
+  }
+
+  source_ranges = ["0.0.0.0/0"]
+}
+
+
+
+
+3. Initialize and Apply Terraform:
+
+
+terraform init
+terraform apply
+
+Confirm the action to provision the resources.
+
+CI/CD Pipeline Setup Using Google Cloud Build
+
+1. Create a cloudbuild.yaml File: This file defines the steps for your CI/CD pipeline. 
+
+Create a file named cloudbuild.yaml with the following content:
+
+
+
+steps:
+- name: 'gcr.io/cloud-builders/git'
+  entrypoint: 'bash'
+  args: ['-c', 'git clone https://github.com/your-username/your-repo.git']
+
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-t', 'gcr.io/$PROJECT_ID/my-web-app', './your-repo']
+
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['push', 'gcr.io/$PROJECT_ID/my-web-app']
+
+- name: 'gcr.io/cloud-builders/gcloud'
+  args: ['compute', 'ssh', 'web-server', '--zone', 'us-central1-a', '--command', 'docker run -d -p 80:80 gcr.io/$PROJECT_ID/my-web-app']
+
+2.Trigger the Build: Set up a trigger in Google Cloud Build to start the build process whenever 
+there is a push to your GitHub repository.
+
+Monitoring and Logging :
+
+1. Enable Google Cloud Monitoring: In the GCP console, navigate to Monitoring and create a new workspace.
+
+2. Set Up Monitoring for the Instance: You can monitor CPU, memory, and disk usage directly from the Monitoring dashboard.
+
+3. Create an Alert Policy:
+
+Go to Monitoring > Alerting > Create Policy.
+
+Set a condition to monitor CPU usage, and configure it to send an email notification if CPU usage exceeds 80%.
+This setup will provide a comprehensive DevOps solution on GCP, covering infrastructure provisioning, CI/CD automation, and monitoring with alerts. Make sure to replace placeholders like your-gcp-project-id and your-username/your-repo with actual values relevant to your project.
+Related
